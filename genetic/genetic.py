@@ -26,7 +26,29 @@ except:
     rank = 0
     nproc = 1
 
-wait_time = 10.
+wait_time = 1.
+delta = 0.1
+
+def low_cpu_barrier():
+
+    if rank==0:
+
+        for dest in range(1, nproc):
+            print "[mpi] rank 0 sending exit to rank %i" % dest
+            comm.send({'model':'exit'}, dest=dest, tag=3)
+
+    else:
+
+        while True:
+            status = MPI.Status()
+            comm.Iprobe(source=0, tag=3, status=status)
+            if status.source == 0:
+                break
+            time.sleep(delta)
+
+        data = comm.recv(source=0, tag=3)
+
+    comm.barrier()
 
 def kill_all(ppid):
 
@@ -492,6 +514,9 @@ class Genetic(object):
 
                 f.close()
 
+        if self.mpi:
+            low_cpu_barrier()
+
         return
 
     def compute_models(self, generation, model):
@@ -535,7 +560,7 @@ class Genetic(object):
 
         else:
 
-            comm.barrier()
+            low_cpu_barrier()
 
             if rank == 0:
 
@@ -546,12 +571,13 @@ class Genetic(object):
                     print "[mpi] rank 0 waiting for communications"
 
                     while True:
+                        status = MPI.Status()
                         comm.Iprobe(source=MPI.ANY_SOURCE, tag=1, status=status)
                         if status.source > 0:
                             break
-                        time.sleep(0.1)
+                        time.sleep(delta)
 
-                    data = comm.recv(source=MPI.ANY_SOURCE, tag=1)
+                    data = comm.recv(source=status.source, tag=1)
                     if data['status'] == 'ready':
                         print "[mpi] rank 0 received ready from rank %i" % data['source']
                         print "[mpi] rank 0 sending model %s to rank %i" % (par_file, data['source'])
@@ -559,14 +585,36 @@ class Genetic(object):
                     else:
                         raise Exception("Got unexpected status: %s" % data['status'])
 
-                print "[mpi] rank 0 sending stop to all nodes"
-                for dest in range(1, nproc):
-                    comm.send({'model': 'stop'}, dest=dest, tag=2)
+                stopped = np.zeros(nproc, dtype=bool)
+
+                while True:
+
+                    if np.all(stopped[1:]):
+                        break
+
+                    print "[mpi] rank 0 waiting for communications"
+
+                    while True:
+                        status = MPI.Status()
+                        comm.Iprobe(source=MPI.ANY_SOURCE, tag=1, status=status)
+                        if status.source > 0:
+                            break
+                        time.sleep(delta)
+
+                    data = comm.recv(source=status.source, tag=1)
+                    if data['status'] == 'ready':
+                        print "[mpi] rank 0 received ready from rank %i" % data['source']
+                        print "[mpi] rank 0 sending stop to rank %i" % data['source']
+                        comm.send({'model': 'stop'}, dest=data['source'], tag=2)
+                        stopped[data['source']] = True
+                    else:
+                        raise Exception("Got unexpected status: %s" % data['status'])
 
             else:
 
                 while True:
 
+                    print "[mpi] rank %i is ready" % rank
                     comm.send({'status': 'ready', 'source': rank}, dest=0, tag=1)
                     data = comm.recv(source=0, tag=2)
 
@@ -587,7 +635,10 @@ class Genetic(object):
                     p.start()
                     wait_with_timeout(p, self._max_time)
 
-            comm.barrier()
+        if self.mpi:
+            low_cpu_barrier()
+
+        return
 
     def compute_fits(self, generation, fitter):
         '''
@@ -601,4 +652,6 @@ class Genetic(object):
         if not self.mpi or rank == 0:
             print "[genetic] Generation %i: fitting and plotting" % generation
             fitter.run(self._model_dir(generation), self._fitting_results_file(generation), self._plots_dir(generation))
+        if self.mpi:
+            low_cpu_barrier()
         return
