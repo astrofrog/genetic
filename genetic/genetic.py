@@ -54,7 +54,7 @@ def time_waster():
 
 
 def etime(pid):
-    cols = os.popen('ps -e -o pid,etime | grep '+str(pid)).read().strip().split()
+    cols = os.popen('ps -xe -o pid,etime | grep '+str(pid)).read().strip().split()
     if len(cols) == 0:
         return 0
     else:
