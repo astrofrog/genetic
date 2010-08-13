@@ -26,6 +26,7 @@ except:
     rank = 0
     nproc = 1
 
+wait_time = 10.
 
 def kill_all(ppid):
 
@@ -96,7 +97,7 @@ def wait_with_timeout(p, seconds):
         if etime(p.pid) > seconds:
             print "Process %i has exceeded %i seconds, terminating" % (p.pid, seconds)
             kill_all(p.pid)
-        time.sleep(0.1)
+        time.sleep(wait_time)
 
 def create_dir(dir_name):
     delete_dir(dir_name)
