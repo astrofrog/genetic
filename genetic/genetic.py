@@ -12,7 +12,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as mpl
 import multiprocessing as mp
-import subprocess
 
 try:
     from mpi4py import MPI
@@ -29,13 +28,48 @@ except:
 wait_time = 1.
 delta = 0.1
 
+# The following is Steven Bethard's functions to pickle methods - required to
+# use multiprocessing.Pool with model.run
+
+def _pickle_method(method):
+    func_name = method.im_func.__name__
+    obj = method.im_self
+    cls = method.im_class
+    return _unpickle_method, (func_name, obj, cls)
+
+def _unpickle_method(func_name, obj, cls):
+    for cls in cls.mro():
+        try:
+            func = cls.__dict__[func_name]
+        except KeyError:
+            pass
+        else:
+            break
+    return func.__get__(obj, cls)
+
+import copy_reg
+import types
+
+copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
+
+# Define a class to allow multiple arguments to be passed to model.run
+
+class RunWrapper(object):
+
+    def __init__(self, function):
+        self.function = function
+
+    def __call__(self, args):
+        return self.function(*args)
+
+
 def low_cpu_barrier():
 
-    if rank==0:
+    if rank == 0:
 
         for dest in range(1, nproc):
             print "[mpi] rank 0 sending exit to rank %i" % dest
-            comm.send({'model':'exit'}, dest=dest, tag=3)
+            comm.send({'model': 'exit'}, dest=dest, tag=3)
 
     else:
 
@@ -50,11 +84,12 @@ def low_cpu_barrier():
 
     comm.barrier()
 
+
 def kill_all(ppid):
 
-    pids = os.popen("ps -x -e -o pid,ppid | awk '{if($2 == "+str(ppid)+") print $1}'").read().split()
+    pids = os.popen("ps -x -e -o pid,ppid | awk '{if($2 == " + str(ppid) + ") print $1}'").read().split()
 
-    if type(pids) <> list:
+    if type(pids) != list:
         pids = (pids, )
 
     for pid in pids:
@@ -72,12 +107,8 @@ def kill_all(ppid):
     return
 
 
-def time_waster():
-    time.sleep(1000)
-
-
 def etime(pid):
-    cols = os.popen('ps -xe -o pid,etime | grep '+str(pid)).read().strip().split()
+    cols = os.popen('ps -xe -o pid,etime | grep ' + str(pid)).read().strip().split()
     if len(cols) == 0:
         return 0
     else:
@@ -95,14 +126,14 @@ def etime(pid):
         elif len(cols) == 4:
             d, h, m, s = cols
         else:
-            raise Exception("Can't understand "+str(cols))
+            raise Exception("Can't understand " + str(cols))
 
         d = float(d)
         h = float(h)
         m = float(m)
         s = float(s)
 
-        return ((d*24+h)*60+m)*60+s
+        return ((d * 24 + h) * 60 + m) * 60 + s
 
 
 def kill_inactive(seconds):
@@ -121,16 +152,17 @@ def wait_with_timeout(p, seconds):
             kill_all(p.pid)
         time.sleep(wait_time)
 
+
 def create_dir(dir_name):
     delete_dir(dir_name)
-    os.system("mkdir "+dir_name)
+    os.system("mkdir " + dir_name)
 
 
 def delete_dir(dir_name):
     if os.path.exists(dir_name):
-        reply = raw_input("Delete directory "+dir_name+"? [y/[n]] ")
-        if reply=='y':
-            os.system('rm -r '+dir_name)
+        reply = raw_input("Delete directory " + dir_name + "? [y/[n]] ")
+        if reply == 'y':
+            os.system('rm -r ' + dir_name)
         else:
             print "Aborting..."
             sys.exit()
@@ -147,7 +179,7 @@ def select(chi2, n, k_frac, p):
 
     model_id = [i for i in range(len(chi2))]
 
-    prob = [p*(1-p)**j for j in range(k)]
+    prob = [p * (1 - p) ** j for j in range(k)]
     norm = sum(prob)
     for i in range(len(prob)):
         prob[i] = prob[i] / norm
@@ -166,7 +198,7 @@ def select(chi2, n, k_frac, p):
 
         xi = r.random()
         for j in range(k):
-            if(xi <= sum(prob[0: j+1])): # is +1 because prob[0: 0] is empty
+            if(xi <= sum(prob[0: j + 1])):  # is  + 1 because prob[0: 0] is empty
                 choice = pool_id[j]
                 choices.append(choice)
                 break
@@ -176,63 +208,61 @@ def select(chi2, n, k_frac, p):
 
 class Genetic(object):
 
-    def __init__(self, n_models, output_dir, template, configuration, existing=False, fraction_output=0.1, fraction_mutation=0.5, n_cores=8, max_time=600, mpi=False):
+    def __init__(self, n_models, output_dir, template, configuration,
+                 existing=False, fraction_output=0.1, fraction_mutation=0.5,
+                 mode='serial', n_cores=None, max_time=600):
         '''
         The Genetic class is used to control the SED fitter genetic algorithm
 
-        Required Arguments:
+        Parameters
+        ----------
 
-            *n_models*: [ integer ]
-                Number of models to run in the first generation, and to keep
-                in subsequent generations
+        n_models: int
+            Number of models to run in the first generation, and to keep in
+            subsequent generations
 
-            *output_dir*: [ string ]
-                The directory in which to output all the models
+        output_dir: str
+            The directory in which to output all the models
 
-            *template*: [ string ]
-                The template parameter file
+        template: str
+            The template parameter file
 
-            *configuration*: [ string ]
+        configuration: str
+            The configuration file that describes how the parameters should be
+            sampled. This file should contain four columns:
+                * The name of the parameter (no spaces)
+                * Whether to sample linearly ('linear') or logarithmically
+                  ('log')
+                * The minimum value of the range
+                * The maximum value of the range
 
-                The configuration file that describes how the parameters
-                should be sampled. This file should contain four columns:
+        existing: bool, optional
+           Whether to keep any existing model directory
 
-                    * The name of the parameter (no spaces)
-                    * Whether to sample linearly ('linear') or logarithmically
-                      ('log')
-                    * The minimum value of the range
-                    * The maximum value of the range
+        fraction_output: float, optional
+           Fraction of models to add to and remove from the pool at each
+           generation
 
-        Optional Arguments:
+        fraction_mutation: float, optional
+           Fraction of children that are mutations (vs crossovers)
 
-            *existing*: [ True | False ]
-                Whether to keep any existing model directory
+        mode: str, optional
+            How to run the models. Can be one of 'serial' (one model at a
+            time), 'multiprocessing' (using multiple cores on a single
+            machine), or 'mpi' (using MPI on a computer cluster).
 
-            *fraction_output*: [ float ]
-                Fraction of models to add to and remove from the pool at each generation
+        n_cores: int, optional
+           Number of cores that can be used to compute models if using the
+           multiprocessing mode. If using MPI, then this option is ignored,
+           and the number of cores is set by mpirun/mpiexec.
 
-            *fraction_mutation*: [ float ]
-                Fraction of children that are mutations (vs crossovers)
-
-            *n_cores*: [ integer ]
-                Number of cores that can be used to compute models
-
-            *max_time*: [ float ]
-                Maximum number of seconds a model can run for
-
-            *mpi*: [ bool ]
-                Whether or not to run the models using MPI. If this is used,
-                the number of cores is set by mpirun, not the n_cores option.
+        max_time: float, optional
+           Maximum number of seconds a model can run for
         '''
 
         # Read in parameters
-        config_file = file(configuration)
         self.n_models = n_models
-        self.models_dir = output_dir
-        if mpi and not mpi_enabled:
-            raise("Can't use MPI, mpi4py did not import correctly")
-        else:
-            self.mpi = mpi
+        self._models_dir = output_dir
 
         # Read in template parameter file
         self._template = file(template, 'r').readlines()
@@ -241,22 +271,40 @@ class Genetic(object):
         self.parameters = {}
         for line in file(configuration, 'rb'):
             if not line.strip() == "":
-                name, mode, vmin, vmax = string.split(line)
-                self.parameters[name] = {'mode': mode, 'min': float(vmin),
+                name, sampling_mode, vmin, vmax = string.split(line)
+                self.parameters[name] = {'mode': sampling_mode,
+                                         'min': float(vmin),
                                          'max': float(vmax)}
-
-        # Create output directory
-        if not existing and (not self.mpi or rank==0):
-            create_dir(self.models_dir)
 
         # Set genetic parameters
         self._fraction_output = fraction_output
         self._fraction_mutation = fraction_mutation
-        self._n_cores = n_cores
         self._max_time = max_time
 
+        if mode == 'serial':
+            self._mode = mode
+            if n_cores is not None:
+                raise Exception("Cannot set n_cores in serial mode")
+        elif mode == 'mpi':
+            if not mpi_enabled:
+                raise("Can't use MPI, mpi4py did not import correctly")
+            self._mode = mode
+            if n_cores is not None:
+                raise Exception("Cannot set n_cores in mpi mode")
+        elif mode == 'multiprocessing':
+            self._mode = mode
+            if n_cores is None:
+                raise Exception("Need to set n_cores in multiprocessing mode")
+            self._n_cores = n_cores
+        else:
+            raise Exception("mode should be one of serial/mpi/multiprocessing")
+
+        # Create output directory
+        if not existing and (not self._mode == 'mpi' or rank == 0):
+            create_dir(self._models_dir)
+
     def _generation_dir(self, generation):
-        return self.models_dir + '/g%05i/' % generation
+        return self._models_dir + '/g%05i/' % generation
 
     def _parameter_file(self, generation, model_name):
         return self._parameter_dir(generation) + str(model_name) + '.par'
@@ -289,7 +337,7 @@ class Genetic(object):
         '''
         Initialize the directory structure for the generation specified.
         '''
-        if not self.mpi or rank == 0:
+        if not self._mode == 'mpi' or rank == 0:
             create_dir(self._generation_dir(generation))
             create_dir(self._model_dir(generation))
             create_dir(self._parameter_dir(generation))
@@ -305,18 +353,18 @@ class Genetic(object):
         method uses results from previous generations to determine which
         models to run.
         '''
-        if not self.mpi or rank == 0:
+        if not self._mode == 'mpi' or rank == 0:
 
             print "[genetic] Generation %i: making parameter table" % generation
 
             t = atpy.Table()
 
-            if generation==1:
+            if generation == 1:
 
                 print "Initializing parameter file for first generation"
 
                 # Create model names column
-                t.add_column('model_name', ["g1_"+str(i) for i in range(self.n_models)], dtype='|S30')
+                t.add_column('model_name', ["g1_" + str(i) for i in range(self.n_models)], dtype='|S30')
 
                 # Create table values
                 for par_name in self.parameters:
@@ -328,7 +376,9 @@ class Genetic(object):
                     if mode == "linear":
                         values = np.random.uniform(vmin, vmax, self.n_models)
                     elif mode == "log":
-                        values = 10.**np.random.uniform(np.log10(vmin), np.log10(vmax), self.n_models)
+                        values = 10. ** np.random.uniform(np.log10(vmin),
+                                                          np.log10(vmax),
+                                                          self.n_models)
                     else:
                         raise Exception("Unknown mode: %s" % mode)
 
@@ -343,19 +393,23 @@ class Genetic(object):
 
                 # Read in previous parameter tables
 
-                par_table = atpy.Table(self._parameter_table(1), verbose=False)
+                par_table = atpy.Table(self._parameter_table(1),
+                                       verbose=False)
                 for g in range(2, generation):
-                    par_table.append(atpy.Table(self._parameter_table(g), verbose=False))
+                    par_table.append(atpy.Table(self._parameter_table(g),
+                                     verbose=False))
 
                 model_names = np.array([x.strip() for x in par_table.model_name.tolist()])
 
                 for column in par_table.names:
-                    if column <> 'model_name':
-                        t.add_empty_column(column, par_table.columns[column].dtype)
+                    if column != 'model_name':
+                        t.add_empty_column(column,
+                                           par_table.columns[column].dtype)
 
                 # Read in fitter results, and sort from best to worst-fit chi^2
 
-                chi2_table = atpy.Table(self._fitting_results_file(1), verbose=False)
+                chi2_table = atpy.Table(self._fitting_results_file(1),
+                                        verbose=False)
                 for g in range(2, generation):
                     chi2_table.append(atpy.Table(self._fitting_results_file(g), verbose=False))
 
@@ -400,7 +454,7 @@ class Genetic(object):
 
                         for par_name in par_table.names:
 
-                            if par_name <> 'model_name':
+                            if par_name != 'model_name':
 
                                 par1 = par_m1[par_name]
                                 par2 = par_m2[par_name]
@@ -410,9 +464,9 @@ class Genetic(object):
                                 mode = self.parameters[par_name]['mode']
 
                                 if mode == "linear":
-                                    value = par1 * xi + par2 * (1.-xi)
+                                    value = par1 * xi + par2 * (1. - xi)
                                 elif mode == "log":
-                                    value = 10.**(np.log10(par1) * xi + np.log10(par2) * (1.-xi))
+                                    value = 10. ** (np.log10(par1) * xi + np.log10(par2) * (1. - xi))
                                 else:
                                     raise Exception("Unknown mode: %s" % mode)
 
@@ -436,7 +490,7 @@ class Genetic(object):
 
                         for par_name in par_table.names:
 
-                            if par_name <> 'model_name':
+                            if par_name != 'model_name':
 
                                 value = par_m1[par_name]
 
@@ -449,7 +503,7 @@ class Genetic(object):
                                     if mode == "linear":
                                         value = r.uniform(vmin, vmax)
                                     elif mode == "log":
-                                        value = 10.**r.uniform(np.log10(vmin), np.log10(vmax))
+                                        value = 10. ** r.uniform(np.log10(vmin), np.log10(vmax))
                                     else:
                                         raise Exception("Unknown mode: %s" % mode)
 
@@ -457,8 +511,8 @@ class Genetic(object):
 
                 logfile.close()
 
-                print "   Mutations  : "+str(mutations)
-                print "   Crossovers : "+str(crossovers)
+                print "   Mutations  : " + str(mutations)
+                print "   Crossovers : " + str(crossovers)
 
                 fig = mpl.figure()
                 ax = fig.add_subplot(111)
@@ -484,7 +538,7 @@ class Genetic(object):
         correlated).
         '''
 
-        if not self.mpi or rank == 0:
+        if not self._mode == 'mpi' or rank == 0:
 
             print "[genetic] Generation %i: making individual parameter files" % generation
 
@@ -514,7 +568,7 @@ class Genetic(object):
 
                 f.close()
 
-        if self.mpi:
+        if self._mode == 'mpi':
             low_cpu_barrier()
 
         return
@@ -531,32 +585,28 @@ class Genetic(object):
 
         start_dir = os.path.abspath(".")
 
-        if not self.mpi:
+        if self._mode in ['serial', 'multiprocessing']:
 
-            print "[genetic] Generation %i: computing models on single node (no MPI)" % generation
+            # Wrapper function to be able to use multiple arguments in map
+            # def run_wrapper(args):
+            #     return model.run(*args)
 
+            run_wrapper = RunWrapper(model.run)
+
+            # Define arguments
+            models = []
             for par_file in glob.glob(os.path.join(self._parameter_dir(generation), '*.par')):
-
-                # Prepare model name and output filename
                 model_name = string.split(os.path.basename(par_file), '.')[0]
+                models.append((par_file, self._model_dir(generation), model_name))
 
-                # Wait until there are n_cores or less active threads
-                while len(mp.active_children()) >= self._n_cores:
-                    kill_inactive(self._max_time)
-                    time.sleep(0.1)
-
-                # Prepare thread
-                os.chdir(start_dir)
-                p = mp.Process(target=model.run, args=(par_file, self._model_dir(generation), model_name))
-
-                # Start thread
-                p.start()
-
-                time.sleep(0.1)
-
-            while len(mp.active_children()) > 0:
-                kill_inactive(self._max_time)
-                time.sleep(10)
+            # Run the models using map
+            if self._mode == 'serial':
+                print "[genetic] Generation %i: computing models in serial mode" % generation
+                map(run_wrapper, models)
+            else:
+                print "[genetic] Generation %i: computing models using multiprocessing" % generation
+                p = mp.Pool(processes=self._n_cores)
+                p.map(run_wrapper, models)
 
         else:
 
@@ -635,7 +685,7 @@ class Genetic(object):
                     p.start()
                     wait_with_timeout(p, self._max_time)
 
-        if self.mpi:
+        if self._mode == 'mpi':
             low_cpu_barrier()
 
         return
@@ -649,9 +699,9 @@ class Genetic(object):
         that can be used for plots, will output a table containing at least
         two columns named 'model_name' and 'chi2'.
         '''
-        if not self.mpi or rank == 0:
+        if not self._mode == 'mpi' or rank == 0:
             print "[genetic] Generation %i: fitting and plotting" % generation
             fitter.run(self._model_dir(generation), self._fitting_results_file(generation), self._plots_dir(generation))
-        if self.mpi:
+        if self._mode == 'mpi':
             low_cpu_barrier()
         return
