@@ -547,6 +547,13 @@ class Genetic(object):
             par_table = [dict(zip(table.names, table.row(i)))
                             for i in range(len(table))]
 
+            # Find static parameters
+            static = {}
+            for line in self._template:
+                name, value = parser(line)
+                if value != 'VAR' and value is not None:
+                    static[name] = value
+
             # Cycle through models and create a parameter file for each
             for model in par_table:
 
@@ -556,10 +563,10 @@ class Genetic(object):
 
                 # Cycle through template lines
                 for line in self._template:
-                    if "VAR" in line:
-                        name = parser(line)
+                    name, value = parser(line)
+                    if value == 'VAR':
                         if interpreter:
-                            value = interpreter(generation, name, model)
+                            value = interpreter(generation, name, dict(model.items() + static.items()))
                         else:
                             value = model[name]
                         f.write(line.replace('VAR', str(value)))
