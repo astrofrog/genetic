@@ -27,6 +27,7 @@ except:
 
 wait_time = 1.
 delta = 0.1
+n_max_sample = 10000
 
 # The following is Steven Bethard's functions to pickle methods - required to
 # use multiprocessing.Pool with model.run
@@ -344,7 +345,7 @@ class Genetic(object):
             create_dir(self._plots_dir(generation))
         return
 
-    def make_par_table(self, generation):
+    def make_par_table(self, generation, validate=lambda x: True):
         '''
         Creates a table of models to compute for the generation specified.
 
@@ -366,23 +367,34 @@ class Genetic(object):
                 # Create model names column
                 t.add_column('model_name', ["g1_" + str(i) for i in range(self.n_models)], dtype='|S30')
 
-                # Create table values
+                # Create empty columns in table
                 for par_name in self.parameters:
+                    t.add_empty_column(par_name, dtype=float)
 
-                    mode = self.parameters[par_name]['mode']
-                    vmin = self.parameters[par_name]['min']
-                    vmax = self.parameters[par_name]['max']
+                for i in range(self.n_models):
 
-                    if mode == "linear":
-                        values = np.random.uniform(vmin, vmax, self.n_models)
-                    elif mode == "log":
-                        values = 10. ** np.random.uniform(np.log10(vmin),
-                                                          np.log10(vmax),
-                                                          self.n_models)
-                    else:
-                        raise Exception("Unknown mode: %s" % mode)
+                    for sample in range(n_max_sample):
 
-                    t.add_column(par_name, values)
+                        for par_name in self.parameters:
+
+                            mode = self.parameters[par_name]['mode']
+                            vmin = self.parameters[par_name]['min']
+                            vmax = self.parameters[par_name]['max']
+
+                            if mode == "linear":
+                                value = r.uniform(vmin, vmax)
+                            elif mode == "log":
+                                value = 10. ** r.uniform(np.log10(vmin), np.log10(vmax))
+                            else:
+                                raise Exception("Unknown mode: %s" % mode)
+
+                            t.data[par_name][i] = value
+
+                        if validate(t.data[i]):
+                            break
+
+                    if sample == n_max_sample - 1:
+                        raise Exception("Could not sample a valid model after {:d} tries".format(n_max_sample))
 
             else:
 
@@ -452,25 +464,33 @@ class Genetic(object):
                         par_m1 = par_table.row(np.char.strip(par_table.model_name) == m1.strip())
                         par_m2 = par_table.row(np.char.strip(par_table.model_name) == m2.strip())
 
-                        for par_name in par_table.names:
+                        for sample in range(n_max_sample):
 
-                            if par_name != 'model_name':
+                            for par_name in par_table.names:
 
-                                par1 = par_m1[par_name]
-                                par2 = par_m2[par_name]
+                                if par_name != 'model_name':
 
-                                xi = r.uniform(0., 1.)
+                                    par1 = par_m1[par_name]
+                                    par2 = par_m2[par_name]
 
-                                mode = self.parameters[par_name]['mode']
+                                    xi = r.uniform(0., 1.)
 
-                                if mode == "linear":
-                                    value = par1 * xi + par2 * (1. - xi)
-                                elif mode == "log":
-                                    value = 10. ** (np.log10(par1) * xi + np.log10(par2) * (1. - xi))
-                                else:
-                                    raise Exception("Unknown mode: %s" % mode)
+                                    mode = self.parameters[par_name]['mode']
 
-                                t.data[par_name][i] = value
+                                    if mode == "linear":
+                                        value = par1 * xi + par2 * (1. - xi)
+                                    elif mode == "log":
+                                        value = 10. ** (np.log10(par1) * xi + np.log10(par2) * (1. - xi))
+                                    else:
+                                        raise Exception("Unknown mode: %s" % mode)
+
+                                    t.data[par_name][i] = value
+
+                            if validate(t.data[i]):
+                                break
+
+                        if sample == n_max_sample - 1:
+                            raise Exception("Could not sample a valid model after {:d} tries".format(n_max_sample))
 
                     else:
 
@@ -488,26 +508,34 @@ class Genetic(object):
 
                         par_m1 = par_table.row(np.char.strip(par_table.model_name) == m1.strip())
 
-                        for par_name in par_table.names:
+                        for sample in range(n_max_sample):
 
-                            if par_name != 'model_name':
+                            for par_name in par_table.names:
 
-                                value = par_m1[par_name]
+                                if par_name != 'model_name':
 
-                                if par_name == mutation:
+                                    value = par_m1[par_name]
 
-                                    mode = self.parameters[par_name]['mode']
-                                    vmin = self.parameters[par_name]['min']
-                                    vmax = self.parameters[par_name]['max']
+                                    if par_name == mutation:
 
-                                    if mode == "linear":
-                                        value = r.uniform(vmin, vmax)
-                                    elif mode == "log":
-                                        value = 10. ** r.uniform(np.log10(vmin), np.log10(vmax))
-                                    else:
-                                        raise Exception("Unknown mode: %s" % mode)
+                                        mode = self.parameters[par_name]['mode']
+                                        vmin = self.parameters[par_name]['min']
+                                        vmax = self.parameters[par_name]['max']
 
-                                t.data[par_name][i] = value
+                                        if mode == "linear":
+                                            value = r.uniform(vmin, vmax)
+                                        elif mode == "log":
+                                            value = 10. ** r.uniform(np.log10(vmin), np.log10(vmax))
+                                        else:
+                                            raise Exception("Unknown mode: %s" % mode)
+
+                                    t.data[par_name][i] = value
+
+                            if validate(t.data[i]):
+                                break
+
+                        if sample == n_max_sample - 1:
+                            raise Exception("Could not sample a valid model after {:d} tries".format(n_max_sample))
 
                 logfile.close()
 
