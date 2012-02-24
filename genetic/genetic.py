@@ -288,7 +288,7 @@ class Genetic(object):
                 raise Exception("Cannot set n_cores in serial mode")
         elif mode == 'mpi':
             if not mpi_enabled:
-                raise("Can't use MPI, mpi4py did not import correctly")
+                raise Exception("Can't use MPI, mpi4py did not import correctly")
             self._mode = mode
             if n_cores is not None:
                 raise Exception("Cannot set n_cores in mpi mode")
