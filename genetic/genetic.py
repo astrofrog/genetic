@@ -12,6 +12,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as mpl
 import multiprocessing as mp
+import subprocess
 
 try:
     from mpi4py import MPI
@@ -266,7 +267,7 @@ class Genetic(object):
         self._models_dir = output_dir
 
         # Read in template parameter file
-        self._template = file(template, 'r').readlines()
+        self._template = open(template, 'rb').readlines()
 
         # Read in configuration file
         self.parameters = {}
@@ -282,7 +283,7 @@ class Genetic(object):
         self._fraction_mutation = fraction_mutation
         self._max_time = max_time
 
-        if mode == 'serial':
+        if mode in ['serial', 'serial_file']:
             self._mode = mode
             if n_cores is not None:
                 raise Exception("Cannot set n_cores in serial mode")
@@ -642,6 +643,41 @@ class Genetic(object):
                 print "[genetic] Generation %i: computing models using multiprocessing" % generation
                 p = mp.Pool(processes=self._n_cores)
                 p.map(run_wrapper, models)
+
+        elif ['serial_file']:
+
+            # This mode allows the model running function to be called via the
+            # command-line instead of via a direct function call. The reason
+            # for wanting to do this is that this opens up many possibilities,
+            # including that the file being called could e.g. submit a job to
+            # a cluster. In this mode, we wait for the return code of the
+            # script to indicate that the run is complete.
+
+            if not isinstance(model, basestring):
+                raise ValueError("model should be the path to a script")
+
+            # Loop over models and start up the process for each model
+            processes = []
+            for par_file in glob.glob(os.path.join(self._parameter_dir(generation), '*.par')):
+                model_name = string.split(os.path.basename(par_file), '.')[0]
+                p = subprocess.Popen([model, par_file, self._model_dir(generation), model_name])
+                processes.append(p)
+
+            while True:
+
+                # For some reason time.sleep(...) doesn't work here, so we have to do it the old-fashioned way
+                import time
+                time1 = time.time()
+                while time.time() < time1 + 1.:
+                    pass
+
+                # Check whether we can exit
+                status = [p.poll() for p in processes]
+                if status.count(None) == 0:
+                    print "[genetic] models done, exiting"
+                    break
+                else:
+                    print "[genetic] %i models running" % status.count(None)
 
         else:
 
