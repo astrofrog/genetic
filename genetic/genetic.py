@@ -49,6 +49,11 @@ def _unpickle_method(func_name, obj, cls):
             break
     return func.__get__(obj, cls)
 
+def sleep(seconds):
+    time1 = time.time()
+    while time.time() < time1 + seconds:
+        pass
+
 import copy_reg
 import types
 
@@ -212,7 +217,7 @@ class Genetic(object):
 
     def __init__(self, n_models, output_dir, template, configuration,
                  existing=False, fraction_output=0.1, fraction_mutation=0.5,
-                 mode='serial', n_cores=None, max_time=600):
+                 mode='serial', n_cores=None, max_time=600, submit_delay=0.):
         '''
         The Genetic class is used to control the SED fitter genetic algorithm
 
@@ -260,6 +265,10 @@ class Genetic(object):
 
         max_time: float, optional
            Maximum number of seconds a model can run for
+
+        submit_delay: float
+            How long to wait between each job submission when using
+            mode='serial_file'.
         '''
 
         # Read in parameters
@@ -285,6 +294,7 @@ class Genetic(object):
 
         if mode in ['serial', 'serial_file']:
             self._mode = mode
+            self.submit_delay = submit_delay
             if n_cores is not None:
                 raise Exception("Cannot set n_cores in serial mode")
         elif mode == 'mpi':
@@ -662,14 +672,13 @@ class Genetic(object):
                 model_name = string.split(os.path.basename(par_file), '.')[0]
                 p = subprocess.Popen([model, par_file, self._model_dir(generation), model_name])
                 processes.append(p)
+                print "Submitting"
+                sleep(self.submit_delay)
 
             while True:
 
                 # For some reason time.sleep(...) doesn't work here, so we have to do it the old-fashioned way
-                import time
-                time1 = time.time()
-                while time.time() < time1 + 1.:
-                    pass
+                sleep(1.)
 
                 # Check whether we can exit
                 status = [p.poll() for p in processes]
