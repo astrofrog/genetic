@@ -217,7 +217,8 @@ class Genetic(object):
 
     def __init__(self, n_models, output_dir, template, configuration,
                  existing=False, fraction_output=0.1, fraction_mutation=0.5,
-                 mode='serial', n_cores=None, max_time=600, submit_delay=0.):
+                 mode='serial', n_cores=None, max_time=600, submit_delay=0.,
+                 submit_limit=np.inf):
         '''
         The Genetic class is used to control the SED fitter genetic algorithm
 
@@ -269,6 +270,10 @@ class Genetic(object):
         submit_delay: float
             How long to wait between each job submission when using
             mode='serial_file'.
+
+        submit_limit: float
+            The maximum number of jobs that can be submitted when using
+            mode='serial_file'.
         '''
 
         # Read in parameters
@@ -295,6 +300,7 @@ class Genetic(object):
         if mode in ['serial', 'serial_file']:
             self._mode = mode
             self.submit_delay = submit_delay
+            self.submit_limit = submit_limit
             if n_cores is not None:
                 raise Exception("Cannot set n_cores in serial mode")
         elif mode == 'mpi':
@@ -668,25 +674,38 @@ class Genetic(object):
 
             # Loop over models and start up the process for each model
             processes = []
+
             for par_file in glob.glob(os.path.join(self._parameter_dir(generation), '*.par')):
+
+                while len(processes) >= self.submit_limit:
+                    sleep(self.submit_delay)
+                    remove = []
+                    for i in range(len(processes)):
+                        p = processes[i]
+                        if p.poll() is not None:
+                            remove.append(i)
+                    for i in remove[::-1]:
+                        processes.pop(i)
+                    print "[genetic] %i models running" % len(processes)
+
                 model_name = string.split(os.path.basename(par_file), '.')[0]
                 p = subprocess.Popen([model, par_file, self._model_dir(generation), model_name])
                 processes.append(p)
-                print "Submitting"
+                print "Submitting %s" % model_name
                 sleep(self.submit_delay)
 
-            while True:
+            while len(processes) > 0:
+                sleep(self.submit_delay)
+                remove = []
+                for i in range(len(processes)):
+                    p = processes[i]
+                    if p.poll() is not None:
+                        remove.append(i)
+                for i in remove[::-1]:
+                    processes.pop(i)
+                print "[genetic] %i models running" % len(processes)
 
-                # For some reason time.sleep(...) doesn't work here, so we have to do it the old-fashioned way
-                sleep(1.)
-
-                # Check whether we can exit
-                status = [p.poll() for p in processes]
-                if status.count(None) == 0:
-                    print "[genetic] models done, exiting"
-                    break
-                else:
-                    print "[genetic] %i models running" % status.count(None)
+            print "[genetic] models done, exiting"
 
         else:
 
