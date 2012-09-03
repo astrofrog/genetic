@@ -130,7 +130,7 @@ class Genetic(object):
             # If this is the first generation, then we just sample within
             # ranges, and don't do any mutations/crossovers.
 
-            print "Initializing parameter file for first generation"
+            print "[genetic] Generation %i: initializing parameter file" % generation
 
             # Create model names column
             t.add_column('model_name', ["g1_" + str(i) for i in range(self.n_models)], dtype='|S30')
@@ -398,7 +398,7 @@ class Genetic(object):
         print "[genetic] Generation %i: making individual parameter files" % generation
 
         # Read in parameter table and construct dictionary
-        table = atpy.Table(self._parameter_table(generation))
+        table = atpy.Table(self._parameter_table(generation), verbose=False)
         par_table = [dict(zip(table.names, table.row(i)))
                         for i in range(len(table))]
 

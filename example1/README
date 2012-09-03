@@ -1,0 +1,11 @@
+Instructions
+============
+
+To run the example, first generate random data:
+
+    python make_data.py
+
+Then you can run the fitting with:
+
+    python example1.py
+
