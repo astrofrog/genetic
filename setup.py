@@ -2,7 +2,7 @@
 
 from distutils.core import setup
 
-setup(name='Genetic Algorithm',
+setup(name='genetic',
       version='0.1.3',
       description='Simple parallel genetic algorithm',
       author='Thomas Robitaille',
