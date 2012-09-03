@@ -1,0 +1,15 @@
+Installation
+============
+
+To install:
+
+    python setup.py install
+
+Getting started
+===============
+
+To understand how to run the genetic code, see the example in example1/.
+The README gives instructions on running the example, while the
+example1.py file contains a very detailed explanation of how the code
+works. If you are really interested in the genetic algorithm itself, you
+can view the code and comments in genetic/genetic.py
