@@ -7,7 +7,7 @@ from scipy.interpolate import interp1d
 
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as mpl
+import matplotlib.pyplot as plt
 
 from genetic import Genetic
 
@@ -30,6 +30,8 @@ def parser(line):
 # name, a directory where to write the model to, and the model name. It is
 # also possible to re-define __init__ so as to be able to pass arguments that
 # remain valid for the duration of the run (see PolyFitter for an example).
+# Note that this method could then call an external program, such as a
+# radiative transfer code, etc.
 
 class PolyModel(object):
 
@@ -92,17 +94,18 @@ class PolyFitter(object):
             model_name.append(name)
 
             # Make a plot of the fit
-            fig = mpl.figure()
+            fig = plt.figure()
             ax = fig.add_subplot(1,1,1)
             ax.scatter(self._x, self._y)
             ax.plot(model_tmp['x'], model_tmp['y'])
             fig.savefig(plots_dir + name + '.png')
+            plt.close(fig)
 
         # Write output chi^2 table
         t = atpy.Table()
         t.add_column('model_name', model_name, dtype='|S30')
         t.add_column('chi2', chi2)
-        t.write(output_file)
+        t.write(output_file, verbose=False)
 
 # Above, we've defined the functions and classes. Now we can finally use them.
 # First, we create an instance of the class to run the models...

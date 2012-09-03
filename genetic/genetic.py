@@ -7,9 +7,6 @@ import random
 # Third-party modules
 import atpy
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as mpl
 
 # Sub-modules from this package
 from .utils import create_dir
@@ -213,14 +210,10 @@ class Genetic(object):
             # Sort from best to worst-fit chi^2
             chi2_table.sort('chi2')
 
-            order = np.argsort(chi2_table.chi2)
-
-            print order[:self.n_models]
-
             # Truncate the table to the n_models first models
-            chi2_table = chi2_table.rows(order[: self.n_models])
+            chi2_table = chi2_table.rows(range(self.n_models))
 
-            print "Best fit so far: ", chi2_table.data[0]
+            print "[genetic] Generation %i: best fit so far: %s with chi^2=%g" % (generation, chi2_table['model_name'][0].strip(), chi2_table['chi2'][0])
 
             # Initialize list to keep track of which models were used in the
             # selection
@@ -263,8 +256,8 @@ class Genetic(object):
                     # The following finds the row in the parameter table where
                     # the model name is equal to the selected model, for both
                     # models.
-                    par_m1 = par_table.row(np.char.strip(par_table.model_name) == m1.strip())
-                    par_m2 = par_table.row(np.char.strip(par_table.model_name) == m2.strip())
+                    par_m1 = par_table.row(np.char.strip(par_table.model_name) == m1.strip())[0]
+                    par_m2 = par_table.row(np.char.strip(par_table.model_name) == m2.strip())[0]
 
                     # As for the first generation, this loop is only useful if
                     # the validation function is customied. The purpose is to
@@ -321,7 +314,7 @@ class Genetic(object):
                     mutation = random.choice(self.parameters.keys())
 
                     # Extract the row from the parameter table
-                    par_m1 = par_table.row(np.char.strip(par_table.model_name) == m1.strip())
+                    par_m1 = par_table.row(np.char.strip(par_table.model_name) == m1.strip())[0]
 
                     # As for the first generation, this loop is only useful if
                     # the validation function is customied. The purpose is to
@@ -364,14 +357,19 @@ class Genetic(object):
             logfile.close()
 
             # Print some statistics
-            print "   Mutations  : " + str(mutations)
-            print "   Crossovers : " + str(crossovers)
+            print "          Mutations  : " + str(mutations)
+            print "          Crossovers : " + str(crossovers)
 
-            # Make a plot showing the number of times each model was selected
-            fig = mpl.figure()
-            ax = fig.add_subplot(111)
+            # Make a plot showing the number of times each model was
+            # selected. We use the OO interface to matplotlib to avoid memory
+            # leaks.
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+            fig = Figure()
+            canvas = FigureCanvas(fig)
+            ax = fig.add_subplot(1, 1, 1)
             ax.hist(selected, 50)
-            fig.savefig(self._sampling_plot_file(generation))
+            canvas.print_figure(self._sampling_plot_file(generation))
 
         # Write out the parameter table
         t.write(self._parameter_table(generation), verbose=False)
