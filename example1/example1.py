@@ -127,7 +127,7 @@ model_fitter = PolyFitter('data_example1')
 # models to compute in each generation after the first, and fraction_mutation
 # gives the fraction of mutations, the remaining being crossovers.
 
-g = Genetic(100, 'models_example1', 'template.par', 'example1.conf',
+g = Genetic(500, 'models_example1', 'template.par', 'example1.conf',
             fraction_output=0.1, fraction_mutation=0.5)
 
 # ... and we can loop over generations
