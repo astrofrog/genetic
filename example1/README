@@ -9,3 +9,6 @@ Then you can run the fitting with:
 
     python example1.py
 
+After a few minutes, the algorithm should have gone through a few
+generations, and the chi^2 should be improving, then eventually
+converging.

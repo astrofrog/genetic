@@ -118,7 +118,7 @@ poly_model = PolyModel()
 model_fitter = PolyFitter('data_example1')
 
 # Finally, we can set up the genetic algorithm itself. The first argument is
-# the number of models to run in the first generation. The econd argument is
+# the number of models to run in the first generation. The second argument is
 # the output directory. The third argument is a template for the parameter
 # file required by PolyModel, which shoud resemble a normal file, but should
 # contain VAR for every parameter that is varied. Finally, the fourth
@@ -130,7 +130,7 @@ model_fitter = PolyFitter('data_example1')
 g = Genetic(500, 'models_example1', 'template.par', 'example1.conf',
             fraction_output=0.1, fraction_mutation=0.5)
 
-# ... and we can loop over generations
+# ... and we can loop over generations. Note, the first generation is 1, not 0.
 
 for generation in range(1,50):
 
