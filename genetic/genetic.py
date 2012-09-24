@@ -322,7 +322,7 @@ class Genetic(object):
                     for sample in range(N_MAX_SAMPLE):
 
                         # Loop over parameters
-                        for par_name in par_table.names:
+                        for par_name in self.parameters:
 
                             # Get the parameter value for this model
                             value = par_m1[par_name]
